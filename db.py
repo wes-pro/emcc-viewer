@@ -1,5 +1,8 @@
 import cx_Oracle
+import os
+import pandas as pd
 
+os.environ["NLS_LANG"] = "american_america.AL32UTF8"
 
 class OMRdb:
 
@@ -20,23 +23,76 @@ class OMRdb:
 
     def get_targets(self):
         con = self.pool.acquire()
-        cur = con.cursor()
         sql = '''
         select 
-            target_name from sysman.mgmt$target
+            target_name,
+            target_type,
+            rawtohex(target_guid) as target_guid
+        from 
+            sysman.mgmt$target
         where 
             target_type in ('{0}')
         order by 1
         '''.format("', '".join(self.target_types))
-        print(sql)
-        cur.execute(sql)
-        return cur.fetchall()
+        return pd.read_sql_query(sql, con, index_col='TARGET_GUID')
 
+    def get_target_metrics(self, target_guid):
+        con = self.pool.acquire()
+        sql = '''
+        select 
+            tt.metric_label, 
+            tt.metric_name
+        from 
+            sysman.mgmt$target_metric_collections mc
+            left join sysman.mgmt$target_type tt on (
+                mc.target_guid=tt.target_guid and 
+                mc.metric_name=tt.metric_name and 
+                mc.metric_column=tt.metric_column
+            )
+        where 
+            mc.target_guid = :t_guid and
+            tt.metric_type = 'Table' and
+            mc.is_enabled=1 and 
+            mc.upload_policy=1 and 
+            mc.frequency_code='Interval'
+        order by 1
+        '''
+        return pd.read_sql_query(sql, con, index_col='METRIC_NAME', params={'t_guid': target_guid})
 
+    def get_target_metric_columns(self, target_guid, metric_name):
+        con = self.pool.acquire()
+        sql = '''
+        select 
+            column_label,
+            metric_column,
+            rawtohex(metric_guid) as metric_guid
+        from
+            sysman.mgmt$metric_current
+        where 
+            target_guid = :t_guid and
+            metric_name = :m_name
+        order by 1
+        '''
+        return pd.read_sql_query(sql, con, index_col='METRIC_COLUMN',
+                                 params={'t_guid': target_guid, 'm_name': metric_name})
 
-
-
-
-
-
+    def get_metric_column_data(self, target_guid, metric_name, metric_column):
+        con = self.pool.acquire()
+        sql = '''
+        select
+            collection_timestamp as time,
+            value
+        from 
+            sysman.mgmt$metric_details
+        where
+            target_guid = :t_guid and
+            metric_name = :m_name and
+            metric_column = :c_name
+        order by 1
+        '''
+        df = pd.read_sql_query(sql, con, index_col='TIME',
+                               params={'t_guid': target_guid,
+                                       'm_name': metric_name,
+                                       'c_name': metric_column})
+        return df.apply(pd.to_numeric, errors='ignore')
 
