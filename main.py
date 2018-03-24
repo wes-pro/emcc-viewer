@@ -13,20 +13,18 @@ emcc_metric = []
 emcc_metric_columns = []
 data_series = collections.OrderedDict()
 data_series_stacked = collections.OrderedDict()
-
 add_clicks = 0
 rem_clicks = 0
 clear_clicks = 0
-resample_clicks = 0
 
 app = dash.Dash()
 
-app.title = 'Dash and Oracle Enterprise Manager demo application'
+app.title = 'Plotly Dash and Oracle Enterprise Manager demo application'
 app.layout = html.Div([
 
     html.Div([
         html.Div([
-            html.H4('Dash and Oracle Enterprise Manager', className='display-6'),
+            html.H4('Plotly Dash and Oracle Enterprise Manager', className='display-6'),
             html.P('''
             How to use Dash framework to visualize performance data from Enterprise Manager Cloud Control
             ''', className='lead')
@@ -76,32 +74,38 @@ app.layout = html.Div([
                     html.Button(id='clear', children='Clear', className='btn btn-primary btn-sm mb-2'),
                 ], className='d-flex flex-raw h-100 align-items-end float-right')
             ], className='col-2 mx-auto')
-        ], className='row mb-4'),
+        ], className='row mb-2'),
+        html.Details([
+            html.Summary('Advanced:', style={}),
+            html.Div([
+                html.Div([
+                    html.Label('Resample?', className='mr-1'),
+                    dcc.Checklist(id='resample', options=[{'value': True}], values=[])
+                ], className="form-group col-2"),
+                html.Div([
+                    html.Label('Resample frequency:', className='mr-2'),
+                    dcc.Input(id='frequency', value='10min', type='text', style={'width': '150px'}),
+                ], className='form-group col-3 mr-4'),
+                html.Div([
+                    html.Label('Resample method:', className='mr-2'),
+                    dcc.Dropdown(
+                        id='method',
+                        options=[
+                            {'label': 'bfill', 'value': 'bfill'},
+                            {'label': 'ffill', 'value': 'ffill'},
+                            {'label': 'mean', 'value': 'mean'},
+                            {'label': 'median', 'value': 'median'},
+                        ],
+                        value='bfill',
+                    )
+                ], className='form-group col-3 mr-4'),
+            ], className='row form-inline mx-auto mb-4'),
+        ], className='container-fluid'),
         html.Div([
             html.Div([
                 dcc.Graph(id='graph')
             ], className='container-fluid')
         ], className='row border border-dark rounded ml-2 mr-2 mb-2'),
-        html.Div([
-            html.Div([
-                html.Label('Resample frequecy:', className='mr-2'),
-                dcc.Input(id='frequency', placeholder='eg. 10min', type='text', style={'width': '100px'}),
-            ], className='form-group mr-4'),
-            html.Div([
-                html.Label('Resample method:', className='mr-2'),
-                dcc.Dropdown(
-                    id='method',
-                    options=[
-                        {'label': 'bfill', 'value': 'bfill'},
-                        {'label': 'ffill', 'value': 'ffill'},
-                        {'label': 'mean', 'value': 'mean'},
-                        {'label': 'median', 'value': 'median'},
-                    ],
-                    value='bfill',
-                )
-            ], className='form-group mr-4'),
-            html.Button(id='resample', children='Resample', className='btn btn-primary btn-sm'),
-        ], className='row form-inline mx-auto')
     ], className='container-fluid')
 ], id='page-content-wrapper ml-2 mr-2')
 
@@ -132,17 +136,17 @@ def get_metric_dropdown_options(target_guid, metric):
     Output('graph', 'figure'),
     [Input('add', 'n_clicks'),
      Input('rem', 'n_clicks'),
-     Input('clear', 'n_clicks'),
-     Input('resample', 'n_clicks')],
+     Input('clear', 'n_clicks')],
     [State('target', 'value'),
      State('metric', 'value'),
      State('column', 'value'),
      State('factor', 'value'),
      State('stacked', 'value'),
+     State('resample', 'values'),
      State('frequency', 'value'),
      State('method', 'value')]
 )
-def add_series(a_clicks, r_clicks, c_clicks, rs_clicks, target_guid, metric, column, factor, stacked, frequency, method):
+def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor, stacked, resample, frequency, method):
     global add_clicks
     global rem_clicks
     global clear_clicks
@@ -157,7 +161,10 @@ def add_series(a_clicks, r_clicks, c_clicks, rs_clicks, target_guid, metric, col
 
     if a_clicks and a_clicks > add_clicks:
         add_clicks = a_clicks
-        series = emcc_db.get_metric_column_data(target_guid, metric, column)
+        if resample:
+            series = emcc_db.get_metric_column_data(target_guid, metric, column, frequency, method)
+        else:
+            series = emcc_db.get_metric_column_data(target_guid, metric, column)
         series.VALUE = series.VALUE * float(factor)
         if stacked:
             if data_series_stacked:
@@ -174,13 +181,6 @@ def add_series(a_clicks, r_clicks, c_clicks, rs_clicks, target_guid, metric, col
             del data_series[(target_guid, metric, column, factor)]
         if (target_guid, metric, column, factor) in data_series_stacked:
             del data_series_stacked[(target_guid, metric, column, factor)]
-
-    if rs_clicks and rs_clicks > resample_clicks:
-        resample_clicks = rs_clicks
-        for key in data_series_stacked.keys():
-            data_series_stacked[key] = data_series_stacked[key].resample(frequency, how=method)
-        for key in data_series.keys():
-            data_series[key] = data_series[key].resample(frequency, how=method)
 
     simple_plots = [
         go.Scatter(
