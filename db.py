@@ -4,6 +4,7 @@ import pandas as pd
 
 os.environ["NLS_LANG"] = "american_america.AL32UTF8"
 
+
 class OMRdb:
 
     def __init__(self, db_user, db_pass, db_tns, target_types):
@@ -38,6 +39,17 @@ class OMRdb:
 
     def get_target_metrics(self, target_guid):
         con = self.pool.acquire()
+        sql2 = '''
+        select distinct
+            metric_label,
+            metric_name
+        from 
+            sysman.mgmt$metric_details
+        where 
+            target_guid = :t_guid 
+        order by 1
+        '''
+
         sql = '''
         select 
             tt.metric_label, 
@@ -45,9 +57,9 @@ class OMRdb:
         from 
             sysman.mgmt$target_metric_collections mc
             left join sysman.mgmt$target_type tt on (
-                mc.target_guid=tt.target_guid and 
-                mc.metric_name=tt.metric_name and 
-                mc.metric_column=tt.metric_column
+                mc.target_guid = tt.target_guid and 
+                mc.metric_name = tt.metric_name and 
+                mc.metric_column = tt.metric_column
             )
         where 
             mc.target_guid = :t_guid and
@@ -62,12 +74,12 @@ class OMRdb:
     def get_target_metric_columns(self, target_guid, metric_name):
         con = self.pool.acquire()
         sql = '''
-        select 
+        select distinct
             column_label,
             metric_column,
             rawtohex(metric_guid) as metric_guid
         from
-            sysman.mgmt$metric_current
+            sysman.mgmt$metric_details
         where 
             target_guid = :t_guid and
             metric_name = :m_name
@@ -76,7 +88,7 @@ class OMRdb:
         return pd.read_sql_query(sql, con, index_col='METRIC_COLUMN',
                                  params={'t_guid': target_guid, 'm_name': metric_name})
 
-    def get_metric_column_data(self, target_guid, metric_name, metric_column):
+    def get_metric_column_data(self, target_guid, metric_name, metric_column, resample=None, method='bfill'):
         con = self.pool.acquire()
         sql = '''
         select
@@ -94,5 +106,8 @@ class OMRdb:
                                params={'t_guid': target_guid,
                                        'm_name': metric_name,
                                        'c_name': metric_column})
-        return df.apply(pd.to_numeric, errors='ignore')
+        if resample:
+            return df.apply(pd.to_numeric, errors='ignore').resample(resample, fill_method=method)
+        else:
+            return df.apply(pd.to_numeric, errors='ignore')
 
