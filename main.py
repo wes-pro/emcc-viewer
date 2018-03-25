@@ -1,6 +1,7 @@
-import collections
-from flask import Flask, g
-from werkzeug.local import LocalProxy
+from collections import OrderedDict
+import flask
+import os
+import json
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -13,42 +14,14 @@ emcc_db = db.OMRdb(config.db_user, config.db_pass, config.db_tns, config.target_
 emcc_targets = emcc_db.get_targets()
 
 
-def get_data_series():
-    d = getattr(g, '_data_servies', None)
-    if d is None:
-        d = g._data_series = collections.OrderedDict()
-    return d
-
-
-def set_data_series(d):
-    g.setattr(g, '_data_services', d)
-
-
-def get_data_series_stacked():
-    d = getattr(g, '_data_servies_stacked', None)
-    if d is None:
-        d = g._data_series_stacked = collections.OrderedDict()
-    return d
-
-
-def set_data_series_stacked(d):
-    g.setattr(g, '_data_services_stacked', d)
-
-data_series = LocalProxy(get_data_series)
-data_series = LocalProxy(set_data_series)
-data_series_stacked = LocalProxy(get_data_series_stacked)
-data_series_stacked = LocalProxy(set_data_series_stacked)
-
-
-#data_series = collections.OrderedDict()
-#data_series_stacked = collections.OrderedDict()
 add_clicks = 0
 rem_clicks = 0
 clear_clicks = 0
 
-flask_app = Flask(__name__)
-app = dash.Dash(__name__, server=flask_app)
-#app = dash.Dash()
+#flask_app = Flask(__name__)
+#app = dash.Dash(__name__, server=flask_app)
+app = dash.Dash(name=__name__,static_folder='static')
+
 
 app.title = 'Plotly Dash and Oracle Enterprise Manager demo application'
 app.layout = html.Div([
@@ -137,12 +110,12 @@ app.layout = html.Div([
                 dcc.Graph(id='graph')
             ], className='container-fluid')
         ], className='row border border-dark rounded ml-2 mr-2 mb-2'),
-    ], className='container-fluid')
+    ], className='container-fluid'),
+    html.Div(id='series_to_draw', style={'display': 'none'}),
 ], id='page-content-wrapper ml-2 mr-2')
 
-app.css.append_css({
-    'external_url': 'https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'
-})
+app.css.append_css({'external_url': 'https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'})
+app.css.append_css({'external_url': 'static/dash.css'})
 
 
 @app.callback(
@@ -164,7 +137,7 @@ def get_metric_dropdown_options(target_guid, metric):
     return options
 
 @app.callback(
-    Output('graph', 'figure'),
+    Output('series_to_draw', 'children'),
     [Input('add', 'n_clicks'),
      Input('rem', 'n_clicks'),
      Input('clear', 'n_clicks')],
@@ -175,79 +148,106 @@ def get_metric_dropdown_options(target_guid, metric):
      State('stacked', 'value'),
      State('resample', 'values'),
      State('frequency', 'value'),
-     State('method', 'value')]
+     State('method', 'value'),
+     State('series_to_draw', 'children')]
 )
-def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor, stacked, resample, frequency, method):
+def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor, stacked, resample, frequency, method, series_to_draw):
     global add_clicks
     global rem_clicks
     global clear_clicks
-    #global data_series
-    #global data_series_stacked
+
+    if resample and resample[0]:
+        resample = True
+    else:
+        resample = False
+    series_list = OrderedDict()
 
     if c_clicks and c_clicks > clear_clicks:
         clear_clicks = c_clicks
-        data_series.clear()
-        data_series_stacked.clear()
+        series_list.clear()
 
     if a_clicks and a_clicks > add_clicks:
         add_clicks = a_clicks
-        if resample:
-            series = emcc_db.get_metric_column_data(target_guid, metric, column, frequency, method)
-        else:
-            series = emcc_db.get_metric_column_data(target_guid, metric, column)
-        series.VALUE = series.VALUE * float(factor)
-        if stacked:
-            if data_series_stacked:
-                last_series = next(reversed(data_series_stacked.values()))
-                data_series_stacked[(target_guid, metric, column, factor)] = series.add(last_series, fill_value=0)
-            else:
-                data_series_stacked[(target_guid, metric, column, factor)] = series
-        else:
-            data_series[(target_guid, metric, column, factor)] = series
-
-        print(len(data_series))
+        if series_to_draw:
+            series_list = json.loads(series_to_draw, object_pairs_hook=OrderedDict)
+        series_list[';'.join((target_guid, metric, column, factor))] = {'stacked': stacked,
+                                                                        'resample': resample,
+                                                                        'frequency': frequency,
+                                                                        'method': method}
 
     if r_clicks and r_clicks > rem_clicks:
         rem_clicks = r_clicks
-        if (target_guid, metric, column, factor) in data_series:
-            del data_series[(target_guid, metric, column, factor)]
-        if (target_guid, metric, column, factor) in data_series_stacked:
-            del data_series_stacked[(target_guid, metric, column, factor)]
+        if series_to_draw:
+            series_list = json.loads(series_to_draw, object_pairs_hook=OrderedDict)
+            del series_list[';'.join((target_guid, metric, column, factor))]
 
-    simple_plots = [
-        go.Scatter(
-            x=data.index,
-            y=data.VALUE,
-            mode='lines+markers',
-            #line=dict(dash='dot'),
-            connectgaps=True,
-            fill='none',
-            name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
-        ) for idx, data in data_series.items()
-    ]
+    return json.dumps(series_list)
 
-    stacked_plots = [
-        go.Scatter(
-            x=data.index,
-            y=data.VALUE,
-            mode='lines+markers',
-            connectgaps=True,
-            fill='tonexty',
-            name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
-        ) for idx, data in data_series_stacked.items()
-    ]
+@app.callback(
+    Output('graph', 'figure'),
+    [Input('series_to_draw', 'children')]
+)
+def draw(series_to_draw):
+    if series_to_draw:
+        data_series = OrderedDict()
+        data_series_stacked = OrderedDict()
+        series_list = json.loads(series_to_draw, object_pairs_hook=OrderedDict)
+        for idx, params in series_list.items():
+            (target_guid, metric, column, factor) = idx.split(';')
+            stacked = params['stacked']
+            resample = params['resample']
+            frequency = params['frequency']
+            method = params['method']
 
-    return go.Figure(
-        data=stacked_plots + simple_plots,
-        layout=go.Layout(
-            showlegend=True,
-            legend=dict(orientation='h', x=0, y=1),
-            margin=dict(t=30, b=30, l=40, r=20),
-            xaxis=dict(
-                rangeslider=dict()
+            if resample:
+                series = emcc_db.get_metric_column_data(target_guid, metric, column, frequency, method)
+            else:
+                series = emcc_db.get_metric_column_data(target_guid, metric, column)
+            series.VALUE = series.VALUE * float(factor)
+
+            if stacked:
+                if data_series_stacked:
+                    last_series = next(reversed(data_series_stacked.values()))
+                    data_series_stacked[(target_guid, metric, column, factor)] = series.add(last_series, fill_value=0)
+                else:
+                    data_series_stacked[(target_guid, metric, column, factor)] = series
+            else:
+                data_series[(target_guid, metric, column, factor)] = series
+
+        simple_plots = [
+            go.Scatter(
+                x=data.index,
+                y=data.VALUE,
+                mode='lines+markers',
+                #line=dict(dash='dot'),
+                connectgaps=True,
+                fill='none',
+                name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
+            ) for idx, data in data_series.items()
+        ]
+
+        stacked_plots = [
+            go.Scatter(
+                x=data.index,
+                y=data.VALUE,
+                mode='lines+markers',
+                connectgaps=True,
+                fill='tonexty',
+                name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
+            ) for idx, data in data_series_stacked.items()
+        ]
+
+        return go.Figure(
+            data=stacked_plots + simple_plots,
+            layout=go.Layout(
+                showlegend=True,
+                legend=dict(orientation='h', x=0, y=1.1),
+                margin=dict(t=50, b=30, l=40, r=20),
+                xaxis=dict(
+                    rangeslider=dict()
+                )
             )
         )
-    )
 
 if __name__ == '__main__':
     app.run_server(port=8999, debug=True)
