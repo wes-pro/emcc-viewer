@@ -1,5 +1,5 @@
 import collections
-import flask
+from flask import Flask, g
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -10,16 +10,22 @@ import config
 
 emcc_db = db.OMRdb(config.db_user, config.db_pass, config.db_tns, config.target_types)
 emcc_targets = emcc_db.get_targets()
-emcc_metric = []
-emcc_metric_columns = []
-data_series = collections.OrderedDict()
-data_series_stacked = collections.OrderedDict()
+
+
+def get_data_series():
+    d = getattr(g, '_data_servies', None)
+    if d is None:
+        d = g._data_series = collections.OrderedDict()
+    return d
+
+#data_series = collections.OrderedDict()
+#data_series_stacked = collections.OrderedDict()
 add_clicks = 0
 rem_clicks = 0
 clear_clicks = 0
 
-server = flask.Flask(__name__)
-app = dash.Dash(__name__, server=server)
+flask_app = Flask(__name__)
+app = dash.Dash(__name__, server=flask_app)
 #app = dash.Dash()
 
 app.title = 'Plotly Dash and Oracle Enterprise Manager demo application'
@@ -153,9 +159,8 @@ def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor
     global add_clicks
     global rem_clicks
     global clear_clicks
-    global resample_clicks
-    global data_series
-    global data_series_stacked
+    #global data_series
+    #global data_series_stacked
 
     if c_clicks and c_clicks > clear_clicks:
         clear_clicks = c_clicks
