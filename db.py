@@ -107,7 +107,8 @@ class OMRdb:
                                        'm_name': metric_name,
                                        'c_name': metric_column})
         if resample:
-            return df.apply(pd.to_numeric, errors='ignore').resample(resample, fill_method=method)
+            rs = df.apply(pd.to_numeric, errors='ignore').resample(resample)
+            return getattr(rs, method)()
         else:
             return df.apply(pd.to_numeric, errors='ignore')
 

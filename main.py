@@ -1,4 +1,5 @@
 import collections
+import flask
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -17,7 +18,9 @@ add_clicks = 0
 rem_clicks = 0
 clear_clicks = 0
 
-app = dash.Dash()
+server = flask.Flask(__name__)
+app = dash.Dash(__name__, server=server)
+#app = dash.Dash()
 
 app.title = 'Plotly Dash and Oracle Enterprise Manager demo application'
 app.layout = html.Div([
@@ -188,7 +191,7 @@ def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor
             y=data.VALUE,
             mode='lines+markers',
             #line=dict(dash='dot'),
-            connectgaps=False,
+            connectgaps=True,
             fill='none',
             name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
         ) for idx, data in data_series.items()
@@ -199,7 +202,7 @@ def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor
             x=data.index,
             y=data.VALUE,
             mode='lines+markers',
-            connectgaps=False,
+            connectgaps=True,
             fill='tonexty',
             name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
         ) for idx, data in data_series_stacked.items()
