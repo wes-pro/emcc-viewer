@@ -1,5 +1,6 @@
 import collections
 from flask import Flask, g
+from werkzeug.local import LocalProxy
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
@@ -17,6 +18,27 @@ def get_data_series():
     if d is None:
         d = g._data_series = collections.OrderedDict()
     return d
+
+
+def set_data_series(d):
+    g.setattr(g, '_data_services', d)
+
+
+def get_data_series_stacked():
+    d = getattr(g, '_data_servies_stacked', None)
+    if d is None:
+        d = g._data_series_stacked = collections.OrderedDict()
+    return d
+
+
+def set_data_series_stacked(d):
+    g.setattr(g, '_data_services_stacked', d)
+
+data_series = LocalProxy(get_data_series)
+data_series = LocalProxy(set_data_series)
+data_series_stacked = LocalProxy(get_data_series_stacked)
+data_series_stacked = LocalProxy(set_data_series_stacked)
+
 
 #data_series = collections.OrderedDict()
 #data_series_stacked = collections.OrderedDict()
@@ -182,6 +204,8 @@ def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor
                 data_series_stacked[(target_guid, metric, column, factor)] = series
         else:
             data_series[(target_guid, metric, column, factor)] = series
+
+        print(len(data_series))
 
     if r_clicks and r_clicks > rem_clicks:
         rem_clicks = r_clicks
