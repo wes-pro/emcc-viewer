@@ -1,25 +1,16 @@
 from collections import OrderedDict
-import flask
-import os
 import json
 import dash
 import dash_core_components as dcc
 import dash_html_components as html
-import plotly.graph_objs as go
 from dash.dependencies import Input, Output, State
+import plotly.graph_objs as go
 import db
 import config
 
 emcc_db = db.OMRdb(config.db_user, config.db_pass, config.db_tns, config.target_types)
 emcc_targets = emcc_db.get_targets()
 
-
-add_clicks = 0
-rem_clicks = 0
-clear_clicks = 0
-
-#flask_app = Flask(__name__)
-#app = dash.Dash(__name__, server=flask_app)
 app = dash.Dash(name=__name__,static_folder='static')
 
 
@@ -111,6 +102,7 @@ app.layout = html.Div([
             ], className='container-fluid')
         ], className='row border border-dark rounded ml-2 mr-2 mb-2'),
     ], className='container-fluid'),
+    html.Div(id='buttons_pressed', style={'display': 'none'}),
     html.Div(id='series_to_draw', style={'display': 'none'}),
 ], id='page-content-wrapper ml-2 mr-2')
 
@@ -127,6 +119,7 @@ def get_metric_dropdown_options(target_guid):
     options = [{'label': d[0], 'value': i} for i, d in metrics.iterrows()]
     return options
 
+
 @app.callback(
     Output('column', 'options'),
     [Input('target', 'value'), Input('metric', 'value')]
@@ -136,11 +129,39 @@ def get_metric_dropdown_options(target_guid, metric):
     options = [{'label': d[0], 'value': i} for i, d in metrics.iterrows()]
     return options
 
+
 @app.callback(
-    Output('series_to_draw', 'children'),
+    Output('buttons_pressed', 'children'),
     [Input('add', 'n_clicks'),
      Input('rem', 'n_clicks'),
      Input('clear', 'n_clicks')],
+    [State('buttons_pressed', 'children')]
+)
+def press_button(n_clicks_add, n_clicks_rem, n_clicks_clear, buttons_pressed):
+    if not n_clicks_add:
+        n_clicks_add = 0
+    if not n_clicks_rem:
+        n_clicks_rem = 0
+    if not n_clicks_clear:
+        n_clicks_clear = 0
+
+    curr_clicks = [str(x) for x in [n_clicks_add, n_clicks_rem, n_clicks_clear]]
+
+    pressed = 'x'
+    if buttons_pressed:
+        prev_clicks = json.loads(buttons_pressed).split(';')
+        for i in range(3):
+            if prev_clicks[i] != curr_clicks[i]:
+                pressed = i
+                break
+
+    output = ';'.join(str(x) for x in curr_clicks + [pressed])
+    return json.dumps(output)
+
+
+@app.callback(
+    Output('series_to_draw', 'children'),
+    [Input('buttons_pressed', 'children')],
     [State('target', 'value'),
      State('metric', 'value'),
      State('column', 'value'),
@@ -151,10 +172,8 @@ def get_metric_dropdown_options(target_guid, metric):
      State('method', 'value'),
      State('series_to_draw', 'children')]
 )
-def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor, stacked, resample, frequency, method, series_to_draw):
-    global add_clicks
-    global rem_clicks
-    global clear_clicks
+def add_series(buttons_pressed, target_guid, metric, column, factor, stacked, resample, frequency, method, series_to_draw):
+    button = json.loads(buttons_pressed).split(';')[3]
 
     if resample and resample[0]:
         resample = True
@@ -162,12 +181,7 @@ def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor
         resample = False
     series_list = OrderedDict()
 
-    if c_clicks and c_clicks > clear_clicks:
-        clear_clicks = c_clicks
-        series_list.clear()
-
-    if a_clicks and a_clicks > add_clicks:
-        add_clicks = a_clicks
+    if button == '0':
         if series_to_draw:
             series_list = json.loads(series_to_draw, object_pairs_hook=OrderedDict)
         series_list[';'.join((target_guid, metric, column, factor))] = {'stacked': stacked,
@@ -175,13 +189,16 @@ def add_series(a_clicks, r_clicks, c_clicks, target_guid, metric, column, factor
                                                                         'frequency': frequency,
                                                                         'method': method}
 
-    if r_clicks and r_clicks > rem_clicks:
-        rem_clicks = r_clicks
+    if button == '1':
         if series_to_draw:
             series_list = json.loads(series_to_draw, object_pairs_hook=OrderedDict)
             del series_list[';'.join((target_guid, metric, column, factor))]
 
+    if button == '2':
+        series_list.clear()
+
     return json.dumps(series_list)
+
 
 @app.callback(
     Output('graph', 'figure'),
@@ -250,7 +267,7 @@ def draw(series_to_draw):
         )
 
 if __name__ == '__main__':
-    app.run_server(port=8999, debug=True)
+    app.run_server(port=8999, debug=True, host='0.0.0.0')
 
 
 
