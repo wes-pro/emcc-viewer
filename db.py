@@ -108,7 +108,8 @@ class OMRdb:
                                        'c_name': metric_column})
         if resample:
             rs = df.apply(pd.to_numeric, errors='ignore').resample(resample)
-            return getattr(rs, method)()
+            rs_resampled = getattr(rs, method)()
+            return rs_resampled.interpolate()
         else:
             return df.apply(pd.to_numeric, errors='ignore')
 

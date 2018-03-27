@@ -5,13 +5,34 @@ import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
+from flask_caching import Cache
+
 import db
 import config
+
 
 emcc_db = db.OMRdb(config.db_user, config.db_pass, config.db_tns, config.target_types)
 emcc_targets = emcc_db.get_targets()
 
 app = dash.Dash(name=__name__,static_folder='static')
+cache = Cache(app.server, config={'CACHE_TYPE': 'simple'})
+app.config.suppress_callback_exceptions = True
+cache_timeout = 600
+
+
+@cache.memoize(timeout=cache_timeout)
+def get_target_metrics(target_guid):
+    return emcc_db.get_target_metrics(target_guid)
+
+
+@cache.memoize(timeout=cache_timeout)
+def get_target_metric_columns(target_guid, metric):
+    return emcc_db.get_target_metric_columns(target_guid, metric)
+
+
+@cache.memoize(timeout=cache_timeout)
+def get_metric_column_data(target_guid, metric, column, resample=None, method='bfill'):
+    return emcc_db.get_metric_column_data(target_guid, metric, column, resample, method)
 
 
 app.title = 'Plotly Dash and Oracle Enterprise Manager demo application'
@@ -89,7 +110,6 @@ app.layout = html.Div([
                             {'label': 'bfill', 'value': 'bfill'},
                             {'label': 'ffill', 'value': 'ffill'},
                             {'label': 'mean', 'value': 'mean'},
-                            {'label': 'median', 'value': 'median'},
                         ],
                         value='bfill',
                     )
@@ -115,7 +135,8 @@ app.css.append_css({'external_url': 'static/dash.css'})
     [Input('target', 'value')]
 )
 def get_metric_dropdown_options(target_guid):
-    metrics = emcc_db.get_target_metrics(target_guid)
+    #metrics = emcc_db.get_target_metrics(target_guid)
+    metrics = get_target_metrics(target_guid)
     options = [{'label': d[0], 'value': i} for i, d in metrics.iterrows()]
     return options
 
@@ -125,7 +146,8 @@ def get_metric_dropdown_options(target_guid):
     [Input('target', 'value'), Input('metric', 'value')]
 )
 def get_metric_dropdown_options(target_guid, metric):
-    metrics = emcc_db.get_target_metric_columns(target_guid, metric)
+    #metrics = emcc_db.get_target_metric_columns(target_guid, metric)
+    metrics = get_target_metric_columns(target_guid, metric)
     options = [{'label': d[0], 'value': i} for i, d in metrics.iterrows()]
     return options
 
@@ -202,10 +224,20 @@ def add_series(buttons_pressed, target_guid, metric, column, factor, stacked, re
 
 @app.callback(
     Output('graph', 'figure'),
-    [Input('series_to_draw', 'children')]
+    [Input('series_to_draw', 'children')],
+    [State('graph', 'relayoutData')]
 )
-def draw(series_to_draw):
+def draw(series_to_draw, prev_layout):
     if series_to_draw:
+        xaxis = dict(
+            rangeslider=dict()
+        )
+        if prev_layout:
+            if 'xaxis.range' in prev_layout:
+                xaxis['range'] = prev_layout['xaxis.range']
+            elif 'xaxis.range[0]' in prev_layout:
+                xaxis['range'] = [prev_layout['xaxis.range[0]'], prev_layout['xaxis.range[1]']]
+
         data_series = OrderedDict()
         data_series_stacked = OrderedDict()
         series_list = json.loads(series_to_draw, object_pairs_hook=OrderedDict)
@@ -217,9 +249,11 @@ def draw(series_to_draw):
             method = params['method']
 
             if resample:
-                series = emcc_db.get_metric_column_data(target_guid, metric, column, frequency, method)
+                #series = emcc_db.get_metric_column_data(target_guid, metric, column, frequency, method)
+                series = get_metric_column_data(target_guid, metric, column, frequency, method)
             else:
-                series = emcc_db.get_metric_column_data(target_guid, metric, column)
+                #series = emcc_db.get_metric_column_data(target_guid, metric, column)
+                series = get_metric_column_data(target_guid, metric, column)
             series.VALUE = series.VALUE * float(factor)
 
             if stacked:
@@ -260,11 +294,10 @@ def draw(series_to_draw):
                 showlegend=True,
                 legend=dict(orientation='h', x=0, y=1.1),
                 margin=dict(t=50, b=30, l=40, r=20),
-                xaxis=dict(
-                    rangeslider=dict()
-                )
+                xaxis=xaxis
             )
         )
+
 
 if __name__ == '__main__':
     app.run_server(port=8999, debug=True, host='0.0.0.0')
