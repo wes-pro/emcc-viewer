@@ -19,6 +19,8 @@ cache = Cache(app.server, config={'CACHE_TYPE': 'simple'})
 app.config.suppress_callback_exceptions = True
 cache_timeout = 600
 
+app.scripts.config.serve_locally = True
+
 
 @cache.memoize(timeout=cache_timeout)
 def get_target_metrics(target_guid):
@@ -110,6 +112,8 @@ app.layout = html.Div([
                             {'label': 'bfill', 'value': 'bfill'},
                             {'label': 'ffill', 'value': 'ffill'},
                             {'label': 'mean', 'value': 'mean'},
+                            {'label': 'max', 'value': 'max'},
+                            {'label': 'min', 'value': 'min'},
                         ],
                         value='bfill',
                     )
@@ -118,12 +122,13 @@ app.layout = html.Div([
         ], className='container-fluid'),
         html.Div([
             html.Div([
-                dcc.Graph(id='graph')
+                dcc.Graph(id='graph', animate=False)
             ], className='container-fluid')
         ], className='row border border-dark rounded ml-2 mr-2 mb-2'),
     ], className='container-fluid'),
     html.Div(id='buttons_pressed', style={'display': 'none'}),
     html.Div(id='series_to_draw', style={'display': 'none'}),
+    html.Div(id='debug', style={'display': 'none'}),
 ], id='page-content-wrapper ml-2 mr-2')
 
 app.css.append_css({'external_url': 'https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css'})
@@ -135,7 +140,6 @@ app.css.append_css({'external_url': 'static/dash.css'})
     [Input('target', 'value')]
 )
 def get_metric_dropdown_options(target_guid):
-    #metrics = emcc_db.get_target_metrics(target_guid)
     metrics = get_target_metrics(target_guid)
     options = [{'label': d[0], 'value': i} for i, d in metrics.iterrows()]
     return options
@@ -146,7 +150,6 @@ def get_metric_dropdown_options(target_guid):
     [Input('target', 'value'), Input('metric', 'value')]
 )
 def get_metric_dropdown_options(target_guid, metric):
-    #metrics = emcc_db.get_target_metric_columns(target_guid, metric)
     metrics = get_target_metric_columns(target_guid, metric)
     options = [{'label': d[0], 'value': i} for i, d in metrics.iterrows()]
     return options
@@ -249,10 +252,8 @@ def draw(series_to_draw, prev_layout):
             method = params['method']
 
             if resample:
-                #series = emcc_db.get_metric_column_data(target_guid, metric, column, frequency, method)
                 series = get_metric_column_data(target_guid, metric, column, frequency, method)
             else:
-                #series = emcc_db.get_metric_column_data(target_guid, metric, column)
                 series = get_metric_column_data(target_guid, metric, column)
             series.VALUE = series.VALUE * float(factor)
 
@@ -265,15 +266,20 @@ def draw(series_to_draw, prev_layout):
             else:
                 data_series[(target_guid, metric, column, factor)] = series
 
+        plot_no = len(data_series) + len(data_series_stacked)
+        symbol_idxs = list(range(0, plot_no))
+
         simple_plots = [
             go.Scatter(
                 x=data.index,
                 y=data.VALUE,
                 mode='lines+markers',
-                #line=dict(dash='dot'),
-                connectgaps=True,
+                connectgaps=False,
                 fill='none',
-                name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
+                marker=dict(symbol=symbol_idxs.pop(0)),
+                name='{0} x {2} ({1})'.format(idx[2],
+                                              emcc_targets.loc[idx[0]][0].split('.')[0],
+                                              idx[3])
             ) for idx, data in data_series.items()
         ]
 
@@ -282,9 +288,12 @@ def draw(series_to_draw, prev_layout):
                 x=data.index,
                 y=data.VALUE,
                 mode='lines+markers',
-                connectgaps=True,
+                connectgaps=False,
                 fill='tonexty',
-                name='{0} x {2} ({1})'.format(idx[2], emcc_targets.loc[idx[0]][0], idx[3])
+                marker=dict(symbol=symbol_idxs.pop(0)),
+                name='{0} x {2} ({1})'.format(idx[2],
+                                              emcc_targets.loc[idx[0]][0].split('.')[0],
+                                              idx[3])
             ) for idx, data in data_series_stacked.items()
         ]
 
@@ -294,10 +303,51 @@ def draw(series_to_draw, prev_layout):
                 showlegend=True,
                 legend=dict(orientation='h', x=0, y=1.1),
                 margin=dict(t=50, b=30, l=40, r=20),
-                xaxis=xaxis
-            )
+                xaxis=xaxis,
+            ),
         )
 
+
+def decode_restyle_event(restyle, series):
+    if restyle and restyle[0] and restyle[0]['visible']:
+        disable_idx = restyle[1][0]
+        series_list = json.loads(series, object_pairs_hook=OrderedDict)
+        series = list(series_list.items())[disable_idx][0]
+        return series.split(';')
+    else:
+        return None
+
+@app.callback(
+    Output('target', 'value'),
+    [Input('graph', 'restyleData')],
+    [State('series_to_draw', 'children')]
+)
+def set_target(restyle, series_to_draw):
+    series = decode_restyle_event(restyle, series_to_draw)
+    if series:
+        return series[0]
+
+
+@app.callback(
+    Output('metric', 'value'),
+    [Input('graph', 'restyleData')],
+    [State('series_to_draw', 'children')]
+)
+def set_target(restyle, series_to_draw):
+    series = decode_restyle_event(restyle, series_to_draw)
+    if series:
+        return series[1]
+
+
+@app.callback(
+    Output('column', 'value'),
+    [Input('graph', 'restyleData')],
+    [State('series_to_draw', 'children')]
+)
+def set_target(restyle, series_to_draw):
+    series = decode_restyle_event(restyle, series_to_draw)
+    if series:
+        return series[2]
 
 if __name__ == '__main__':
     app.run_server(port=8999, debug=True, host='0.0.0.0')
