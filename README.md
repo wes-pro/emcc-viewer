@@ -1,7 +1,7 @@
 # emcc-viewer
 #### How to use Dash framework to visualize performance data from Enterprise Manager Cloud Control
 
-Simple demo project created for POUG 2018 Conference (Pint With Oracle User Group) (http://http://poug.org/en/edycja/poug-2018/)
+Simple demo project created for [POUG 2018 Conference](http://http://poug.org/en/edycja/poug-2018/)
 
 ## Installation on Linux
 
