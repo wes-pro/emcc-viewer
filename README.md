@@ -33,7 +33,7 @@ Simple demo project created for [POUG 2018 Conference](http://http://poug.org/en
 1. Create tnsnames.ora:
    ```
    cat >instantclient_18_3/tnsnames.ora <<EOF
-   OMR_A2T = 
+   OMR = 
      (DESCRIPTION =
        (ADDRESS_LIST = 
          (ADDRESS = (PROTOCOL=TCP)(HOST=<emcc_db_host>)(PORT=1521))
